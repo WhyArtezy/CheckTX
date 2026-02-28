@@ -3,10 +3,16 @@ import json
 from web3 import Web3
 
 # --- KONFIGURASI ---
-CELO_RPC_URL = "https://forno.celo.org" # Bisa diganti ke WSS jika punya provider premium
+# Daftar RPC untuk Failover (Jika satu down, pindah ke bawahnya)
+RPC_URLS = [
+    "https://forno.celo.org",
+    "https://rpc.ankr.com/celo",
+    "https://celo-mainnet.public.blastapi.io",
+    "https://1rpc.io/celo"
+]
+
 USDT_CELO_ADDRESS = "0x48065fbBE25f71C9282ddf5e1cD6D6995348f152"
 
-# ABI Minimal untuk mendeteksi event Transfer ERC-20
 ERC20_ABI = [
     {
         "anonymous": False,
@@ -20,65 +26,88 @@ ERC20_ABI = [
     }
 ]
 
-def load_addresses(filename):
-    """Membaca daftar wallet dari file address.txt"""
-    try:
-        with open(filename, "r") as f:
-            # Pastikan semua alamat dalam format Checksum (case-sensitive)
-            return [Web3.to_checksum_address(line.strip()) for line in f if line.strip()]
-    except Exception as e:
-        print(f"Error file: {e}")
-        return []
+class CeloMonitor:
+    def __init__(self, rpc_list):
+        self.rpc_list = rpc_list
+        self.current_rpc_index = 0
+        self.w3 = None
+        self.connect_rpc()
 
-def main():
-    w3 = Web3(Web3.HTTPProvider(CELO_RPC_URL))
-    if not w3.is_connected():
-        print("Gagal terhubung ke Celo Network")
-        return
+    def connect_rpc(self):
+        """Mencoba menghubungkan ke RPC yang tersedia"""
+        while self.current_rpc_index < len(self.rpc_list):
+            url = self.rpc_list[self.current_rpc_index]
+            print(f"🔄 Mencoba terhubung ke RPC: {url}")
+            self.w3 = Web3(Web3.HTTPProvider(url))
+            
+            if self.w3.is_connected():
+                print(f"✅ Terhubung ke {url}")
+                return True
+            else:
+                print(f"❌ RPC {url} Down. Mencoba rpc berikutnya...")
+                self.current_rpc_index += 1
+        
+        # Jika semua RPC gagal, balik ke awal dan tunggu
+        print("⚠️ Semua RPC Down. Menunggu 10 detik sebelum mengulang...")
+        self.current_rpc_index = 0
+        time.sleep(10)
+        return self.connect_rpc()
 
-    usdt_contract = w3.eth.contract(address=Web3.to_checksum_address(USDT_CELO_ADDRESS), abi=ERC20_ABI)
-    
-    print("--- MONITORING USDT CELO DIMULAI ---")
-    last_block = w3.eth.block_number
-
-    while True:
+    def load_addresses(self, filename):
         try:
-            current_block = w3.eth.block_number
-            if current_block <= last_block:
-                time.sleep(2) # Tunggu blok baru
-                continue
-
-            # Scan blok dari yang terakhir kita cek sampai yang terbaru
-            for block_num in range(last_block + 1, current_block + 1):
-                watched_wallets = load_addresses("address.txt")
-                
-                # Cari logs Transfer USDT di blok ini
-                logs = usdt_contract.events.Transfer().get_logs(fromBlock=block_num, toBlock=block_num)
-                
-                for log in logs:
-                    from_addr = log.args['from']
-                    to_addr = log.args['to']
-                    # USDT Celo menggunakan 6 desimal
-                    value = log.args['value'] / 10**6 
-
-                    # Cek apakah pengirim atau penerima ada di list kita
-                    if from_addr in watched_wallets or to_addr in watched_wallets:
-                        status = "MASUK 📥" if to_addr in watched_wallets else "KELUAR 📤"
-                        
-                        print(f"\n🔔 [USDT CELO] Transaksi {status}")
-                        print(f"Hash : {log.transactionHash.hex()}")
-                        print(f"Dari : {from_addr}")
-                        print(f"Ke   : {to_addr}")
-                        print(f"Nilai: {value:.2f} USDT")
-                        print(f"Block: {block_num}")
-                        print("-" * 40)
-
-            last_block = current_block
-
+            with open(filename, "r") as f:
+                return [Web3.to_checksum_address(line.strip()) for line in f if line.strip()]
         except Exception as e:
-            print(f"Error: {e}")
-            time.sleep(5)
+            print(f"Error membaca file: {e}")
+            return []
+
+    def start_monitoring(self):
+        usdt_contract = self.w3.eth.contract(
+            address=Web3.to_checksum_address(USDT_CELO_ADDRESS), 
+            abi=ERC20_ABI
+        )
+        
+        print("--- MONITORING USDT CELO AKTIF ---")
+        last_block = self.w3.eth.block_number
+
+        while True:
+            try:
+                current_block = self.w3.eth.block_number
+                
+                if current_block <= last_block:
+                    time.sleep(2)
+                    continue
+
+                for block_num in range(last_block + 1, current_block + 1):
+                    watched_wallets = self.load_addresses("address.txt")
+                    logs = usdt_contract.events.Transfer().get_logs(fromBlock=block_num, toBlock=block_num)
+                    
+                    for log in logs:
+                        from_addr = log.args['from']
+                        to_addr = log.args['to']
+                        value = log.args['value'] / 10**6 
+
+                        if from_addr in watched_wallets or to_addr in watched_wallets:
+                            status = "MASUK 📥" if to_addr in watched_wallets else "KELUAR 📤"
+                            print(f"\n🔔 [USDT CELO] {status} | {value:.2f} USDT")
+                            print(f"Hash: {log.transactionHash.hex()}")
+                            print(f"Dari: {from_addr}\nKe  : {to_addr}")
+                            print("-" * 40)
+
+                last_block = current_block
+
+            except Exception as e:
+                print(f"❗ Gangguan koneksi: {e}")
+                print("🔄 Mengalihkan ke RPC cadangan...")
+                self.current_rpc_index = (self.current_rpc_index + 1) % len(self.rpc_list)
+                self.connect_rpc()
+                # Update contract instance dengan koneksi baru
+                usdt_contract = self.w3.eth.contract(
+                    address=Web3.to_checksum_address(USDT_CELO_ADDRESS), 
+                    abi=ERC20_ABI
+                )
 
 if __name__ == "__main__":
-    main()
-          
+    monitor = CeloMonitor(RPC_URLS)
+    monitor.start_monitoring()
+    
