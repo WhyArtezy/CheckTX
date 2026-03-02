@@ -235,12 +235,12 @@ ${time}
   lastBlock = currentBlock;
 }
 
-// ================= LOOP 30 DETIK =================
+// ================= LOOP 10 DETIK =================
 
 async function transferLoop() {
   while (true) {
     await checkTransfers();
-    await new Promise(r => setTimeout(r, 30000)); // 30 detik
+    await new Promise(r => setTimeout(r, 10000)); // 10 detik
   }
 }
 
@@ -254,7 +254,7 @@ async function start() {
   console.log("🚀 Bot Aktif");
   console.log("Total user:", Object.keys(users).length);
 
-  setInterval(checkTelegram, 3000);
+  setInterval(checkTelegram, 10000);
   transferLoop();
 }
 
