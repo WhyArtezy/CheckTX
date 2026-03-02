@@ -155,14 +155,14 @@ async function checkTransfers() {
 `Address : ${WALLET_ADDRESS}
 Balance : ${balance} USDT
 
-━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━
 
 ${type}
 ${addressLine}
 Jumlah : ${amount} USDT
-Block  : ${e.blockNumber}
-Waktu  : ${txTime}
-Tx     : ${e.transactionHash}
+Block : ${e.blockNumber}
+Tx : ${e.transactionHash}
+Waktu : ${txTime}
 `;
 
       for (const [chatId] of users.entries()) {
