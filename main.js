@@ -1,12 +1,12 @@
 require("dotenv").config();
 const { ethers } = require("ethers");
 const axios = require("axios");
+const fs = require("fs");
 
 const RPC_URL = process.env.RPC_URL;
 const WALLET_ADDRESS = process.env.WALLET_ADDRESS.toLowerCase();
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
-// USDT Celo
 const USDT_CONTRACT = "0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e";
 
 const ABI = [
@@ -20,8 +20,31 @@ let contract;
 let lastBlock = 0;
 let lastUpdateId = 0;
 
-// simpan 1 message per user
-let users = new Map();
+const USER_FILE = "user.json";
+let users = {};
+
+// ================= USER STORAGE =================
+
+function loadUsers() {
+  if (!fs.existsSync(USER_FILE)) {
+    users = {};
+    return;
+  }
+
+  try {
+    users = JSON.parse(fs.readFileSync(USER_FILE));
+  } catch {
+    users = {};
+  }
+
+  console.log("Loaded users:", Object.keys(users).length);
+}
+
+function saveUsers() {
+  fs.writeFileSync(USER_FILE, JSON.stringify(users, null, 2));
+}
+
+// ================= RPC =================
 
 function initProvider() {
   console.log("🔄 Connecting RPC...");
@@ -29,6 +52,7 @@ function initProvider() {
     name: "celo",
     chainId: 42220
   });
+
   contract = new ethers.Contract(USDT_CONTRACT, ABI, provider);
 }
 
@@ -36,13 +60,20 @@ async function safeCall(fn) {
   try {
     return await fn();
   } catch (err) {
-    console.log("⚠ RPC Error. Reconnecting...");
+    console.log("⚠ RPC error, reconnecting...");
     initProvider();
     return null;
   }
 }
 
-// ===== TELEGRAM POLLING =====
+// ================= TELEGRAM =================
+
+async function removeWebhook() {
+  try {
+    await axios.get(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/deleteWebhook`);
+  } catch {}
+}
+
 async function checkTelegram() {
   try {
     const res = await axios.get(
@@ -54,51 +85,75 @@ async function checkTelegram() {
       lastUpdateId = update.update_id;
 
       if (update.message && update.message.text === "/start") {
-        const chatId = update.message.chat.id;
+        const chatId = String(update.message.chat.id);
 
-        if (!users.has(chatId)) {
-          users.set(chatId, { messageId: null });
+        if (!users[chatId]) {
+          users[chatId] = { messageId: null };
+          saveUsers();
+          console.log("User baru:", chatId);
         }
-
-        console.log("User aktif:", chatId);
       }
     }
+
   } catch (err) {
-    console.log("Telegram error:", err.message);
+    if (err.response) {
+      console.log(err.response.data);
+    } else {
+      console.log(err.message);
+    }
   }
 }
 
-// ===== SEND OR EDIT SINGLE MESSAGE =====
 async function sendOrEdit(chatId, text) {
-  const user = users.get(chatId);
-
   try {
-    if (!user.messageId) {
+
+    if (!users[chatId].messageId) {
+
       const res = await axios.post(
         `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
-        {
-          chat_id: chatId,
-          text: text
-        }
+        { chat_id: chatId, text }
       );
 
-      user.messageId = res.data.result.message_id;
+      users[chatId].messageId = res.data.result.message_id;
+      saveUsers();
+
     } else {
+
       await axios.post(
         `https://api.telegram.org/bot${TELEGRAM_TOKEN}/editMessageText`,
         {
           chat_id: chatId,
-          message_id: user.messageId,
-          text: text
+          message_id: users[chatId].messageId,
+          text
         }
       );
+
     }
+
   } catch (err) {
-    console.log("Telegram send error:", err.message);
+
+    if (err.response) {
+      const code = err.response.data.error_code;
+
+      // Jika user blokir bot
+      if (code === 403) {
+        console.log("User blokir, dihapus:", chatId);
+        delete users[chatId];
+        saveUsers();
+      }
+
+      // Hindari error message is not modified
+      if (code === 400) return;
+
+      console.log(err.response.data);
+    } else {
+      console.log(err.message);
+    }
   }
 }
 
-// ===== CHECK BALANCE =====
+// ================= BALANCE =================
+
 async function checkBalance() {
   const decimals = await safeCall(() => contract.decimals());
   if (!decimals) return null;
@@ -109,7 +164,8 @@ async function checkBalance() {
   return ethers.formatUnits(raw, decimals);
 }
 
-// ===== CHECK TRANSFER (ONLY LAST TX) =====
+// ================= TRANSFER CHECK =================
+
 async function checkTransfers() {
   const currentBlock = await safeCall(() => provider.getBlockNumber());
   if (!currentBlock) return;
@@ -129,6 +185,7 @@ async function checkTransfers() {
   }
 
   for (const e of events) {
+
     const from = e.args.from.toLowerCase();
     const to = e.args.to.toLowerCase();
 
@@ -138,12 +195,8 @@ async function checkTransfers() {
       const amount = ethers.formatUnits(e.args.value, decimals);
       const balance = await checkBalance();
 
-      // 🔥 Ambil block untuk dapat timestamp
       const block = await provider.getBlock(e.blockNumber);
-      const timestamp = block.timestamp;
-
-      // Format waktu ke lokal
-      const txTime = new Date(timestamp * 1000).toLocaleString("id-ID");
+      const time = new Date(block.timestamp * 1000).toLocaleString("id-ID");
 
       const isIn = to === WALLET_ADDRESS;
       const type = isIn ? "🟢 USDT IN" : "🔴 USDT OUT";
@@ -155,7 +208,7 @@ async function checkTransfers() {
 `Address : ${WALLET_ADDRESS}
 Balance : ${balance} USDT
 
-━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━
 
 ${type}
 ${addressLine}
@@ -163,10 +216,10 @@ Jumlah : ${amount} USDT
 Block : ${e.blockNumber}
 Tx : ${e.transactionHash}
 
-${txTime}
+${time}
 `;
 
-      for (const [chatId] of users.entries()) {
+      for (const chatId of Object.keys(users)) {
         await sendOrEdit(chatId, message);
       }
     }
@@ -175,15 +228,27 @@ ${txTime}
   lastBlock = currentBlock;
 }
 
-// ===== START BOT =====
+// ================= LOOP 30 DETIK =================
+
+async function transferLoop() {
+  while (true) {
+    await checkTransfers();
+    await new Promise(r => setTimeout(r, 30000)); // 30 detik
+  }
+}
+
+// ================= START =================
+
 async function start() {
+  await removeWebhook();
   initProvider();
+  loadUsers();
 
   console.log("🚀 Bot Aktif");
-  console.log("Kirim /start ke bot Telegram");
+  console.log("Total user:", Object.keys(users).length);
 
   setInterval(checkTelegram, 3000);
-  setInterval(checkTransfers, 8000);
+  transferLoop();
 }
 
 start();
