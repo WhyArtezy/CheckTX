@@ -162,7 +162,8 @@ ${addressLine}
 Jumlah : ${amount} USDT
 Block : ${e.blockNumber}
 Tx : ${e.transactionHash}
-Waktu : ${txTime}
+
+${txTime}
 `;
 
       for (const [chatId] of users.entries()) {
