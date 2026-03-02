@@ -2,13 +2,7 @@ require("dotenv").config();
 const { ethers } = require("ethers");
 const axios = require("axios");
 
-// ===== LOAD ENV =====
-const RPC_LIST = [
-  process.env.RPC_1,
-  process.env.RPC_2,
-  process.env.RPC_3
-].filter(Boolean);
-
+const RPC_URL = process.env.RPC_URL;
 const WALLET_ADDRESS = process.env.WALLET_ADDRESS.toLowerCase();
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -23,50 +17,29 @@ const ABI = [
 let provider;
 let contract;
 let lastBlock = 0;
-let currentRpcIndex = 0;
 let TELEGRAM_CHAT_ID = null;
 
-// ===== INIT PROVIDER =====
+// ===== INIT RPC =====
 function initProvider() {
-  const rpc = RPC_LIST[currentRpcIndex];
-  console.log(`🔌 Connecting RPC ${currentRpcIndex + 1}: ${rpc}`);
-  provider = new ethers.JsonRpcProvider(rpc);
+  console.log("🔄 Connecting RPC...");
+  provider = new ethers.JsonRpcProvider(RPC_URL);
   contract = new ethers.Contract(USDT_CONTRACT, ABI, provider);
 }
 
-// ===== SWITCH RPC =====
-function switchRpc() {
-  currentRpcIndex = (currentRpcIndex + 1) % RPC_LIST.length;
-  console.log("⚠ Switching to backup RPC...");
-  initProvider();
-}
-
-// ===== SAFE CALL =====
-async function safeCall(fn) {
-  try {
-    return await fn();
-  } catch (err) {
-    console.log("❌ RPC Error:", err.message);
-    switchRpc();
-    return null;
-  }
-}
-
-// ===== TELEGRAM AUTO CHAT ID =====
+// ===== AUTO DETECT CHAT ID =====
 async function getChatId() {
   if (TELEGRAM_CHAT_ID) return TELEGRAM_CHAT_ID;
 
-  const res = await axios.get(
-    `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates`
-  );
+  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates`;
+  const res = await axios.get(url);
 
-  if (!res.data.result.length) {
-    console.log("⚠ Kirim pesan dulu ke bot kamu.");
+  if (res.data.result.length === 0) {
+    console.log("⚠️ Kirim pesan dulu ke bot kamu di Telegram!");
     return null;
   }
 
   TELEGRAM_CHAT_ID = res.data.result[0].message.chat.id;
-  console.log("✅ Chat ID:", TELEGRAM_CHAT_ID);
+  console.log("✅ Chat ID ditemukan:", TELEGRAM_CHAT_ID);
   return TELEGRAM_CHAT_ID;
 }
 
@@ -83,6 +56,17 @@ async function sendTelegram(message) {
       parse_mode: "HTML"
     }
   );
+}
+
+// ===== SAFE CALL =====
+async function safeCall(fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    console.log("⚠ RPC Error. Reconnecting...");
+    initProvider();
+    return null;
+  }
 }
 
 // ===== CHECK BALANCE =====
@@ -120,6 +104,7 @@ async function checkTransfers() {
       const decimals = await contract.decimals();
       const amount = ethers.formatUnits(e.args.value, decimals);
       const balance = await checkBalance();
+
       const type = to === WALLET_ADDRESS ? "🟢 MASUK" : "🔴 KELUAR";
 
       const message = `
