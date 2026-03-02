@@ -138,6 +138,13 @@ async function checkTransfers() {
       const amount = ethers.formatUnits(e.args.value, decimals);
       const balance = await checkBalance();
 
+      // 🔥 Ambil block untuk dapat timestamp
+      const block = await provider.getBlock(e.blockNumber);
+      const timestamp = block.timestamp;
+
+      // Format waktu ke lokal
+      const txTime = new Date(timestamp * 1000).toLocaleString("id-ID");
+
       const isIn = to === WALLET_ADDRESS;
       const type = isIn ? "🟢 USDT IN" : "🔴 USDT OUT";
       const addressLine = isIn
@@ -154,6 +161,7 @@ ${type}
 ${addressLine}
 Jumlah : ${amount} USDT
 Block  : ${e.blockNumber}
+Waktu  : ${txTime}
 Tx     : ${e.transactionHash}
 `;
 
