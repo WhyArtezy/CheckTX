@@ -17,48 +17,20 @@ const ABI = [
 let provider;
 let contract;
 let lastBlock = 0;
-let TELEGRAM_CHAT_ID = null;
+let lastUpdateId = 0;
 
-// ===== INIT RPC =====
+// chatId => { messageId, history }
+let users = new Map();
+
 function initProvider() {
   console.log("🔄 Connecting RPC...");
-  provider = new ethers.JsonRpcProvider(RPC_URL);
+  provider = new ethers.JsonRpcProvider(RPC_URL, {
+    name: "celo",
+    chainId: 42220
+  });
   contract = new ethers.Contract(USDT_CONTRACT, ABI, provider);
 }
 
-// ===== AUTO DETECT CHAT ID =====
-async function getChatId() {
-  if (TELEGRAM_CHAT_ID) return TELEGRAM_CHAT_ID;
-
-  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates`;
-  const res = await axios.get(url);
-
-  if (res.data.result.length === 0) {
-    console.log("⚠️ Kirim pesan dulu ke bot kamu di Telegram!");
-    return null;
-  }
-
-  TELEGRAM_CHAT_ID = res.data.result[0].message.chat.id;
-  console.log("✅ Chat ID ditemukan:", TELEGRAM_CHAT_ID);
-  return TELEGRAM_CHAT_ID;
-}
-
-// ===== SEND TELEGRAM =====
-async function sendTelegram(message) {
-  const chatId = await getChatId();
-  if (!chatId) return;
-
-  await axios.post(
-    `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
-    {
-      chat_id: chatId,
-      text: message,
-      parse_mode: "HTML"
-    }
-  );
-}
-
-// ===== SAFE CALL =====
 async function safeCall(fn) {
   try {
     return await fn();
@@ -69,18 +41,76 @@ async function safeCall(fn) {
   }
 }
 
+// ===== TELEGRAM LISTENER =====
+async function checkTelegram() {
+  try {
+    const res = await axios.get(
+      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates`,
+      { params: { offset: lastUpdateId + 1 } }
+    );
+
+    for (const update of res.data.result) {
+      lastUpdateId = update.update_id;
+
+      if (update.message && update.message.text === "/start") {
+        const chatId = update.message.chat.id;
+
+        if (!users.has(chatId)) {
+          users.set(chatId, { messageId: null, history: "" });
+        }
+
+        console.log("User aktif:", chatId);
+      }
+    }
+  } catch (err) {
+    console.log("Telegram polling error:", err.message);
+  }
+}
+
+// ===== SEND / UPDATE SINGLE MESSAGE =====
+async function sendOrEdit(chatId, content) {
+  const user = users.get(chatId);
+
+  try {
+    if (!user.messageId) {
+      const res = await axios.post(
+        `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
+        {
+          chat_id: chatId,
+          text: content,
+          parse_mode: "HTML"
+        }
+      );
+
+      user.messageId = res.data.result.message_id;
+    } else {
+      await axios.post(
+        `https://api.telegram.org/bot${TELEGRAM_TOKEN}/editMessageText`,
+        {
+          chat_id: chatId,
+          message_id: user.messageId,
+          text: content,
+          parse_mode: "HTML"
+        }
+      );
+    }
+  } catch (err) {
+    console.log("Telegram send error:", err.message);
+  }
+}
+
 // ===== CHECK BALANCE =====
 async function checkBalance() {
   const decimals = await safeCall(() => contract.decimals());
-  if (!decimals) return;
+  if (!decimals) return null;
 
   const raw = await safeCall(() => contract.balanceOf(WALLET_ADDRESS));
-  if (!raw) return;
+  if (!raw) return null;
 
   return ethers.formatUnits(raw, decimals);
 }
 
-// ===== CHECK TRANSFER =====
+// ===== CHECK TRANSFERS =====
 async function checkTransfers() {
   const currentBlock = await safeCall(() => provider.getBlockNumber());
   if (!currentBlock) return;
@@ -105,19 +135,40 @@ async function checkTransfers() {
       const amount = ethers.formatUnits(e.args.value, decimals);
       const balance = await checkBalance();
 
-      const type = to === WALLET_ADDRESS ? "🟢 MASUK" : "🔴 KELUAR";
+      const isIn = to === WALLET_ADDRESS;
+      const type = isIn ? "🟢 USDT IN" : "🔴 USDT OUT";
+      const addressLine = isIn
+        ? `From : ${from}`
+        : `To   : ${to}`;
 
-      const message = `
-<b>USDT ${type}</b>
+      const txLog = `
+${type}
+${addressLine}
+Jumlah : ${amount} USDT
+Block  : ${e.blockNumber}
+Tx     : ${e.transactionHash}
 
-Jumlah: <b>${amount} USDT</b>
-Saldo: <b>${balance} USDT</b>
-
-Tx: https://celoscan.io/tx/${e.transactionHash}
 `;
 
-      console.log(message);
-      await sendTelegram(message);
+      for (const [chatId, data] of users.entries()) {
+        const newHistory = txLog + data.history;
+
+        const message = `
+Address : ${WALLET_ADDRESS}
+Balance : ${balance} USDT
+
+━━━━━━━━━━━━━━━━
+
+${newHistory}
+`;
+
+        await sendOrEdit(chatId, message);
+
+        users.set(chatId, {
+          messageId: data.messageId,
+          history: newHistory.slice(0, 3000) // limit biar gak terlalu panjang
+        });
+      }
     }
   }
 
@@ -128,13 +179,10 @@ Tx: https://celoscan.io/tx/${e.transactionHash}
 async function start() {
   initProvider();
 
-  const balance = await checkBalance();
-  console.log("💰 Saldo awal:", balance);
+  console.log("🚀 Bot aktif");
+  console.log("Kirim /start ke bot Telegram");
 
-  await sendTelegram(
-    `🚀 Monitoring aktif\nWallet: ${WALLET_ADDRESS}\nSaldo: ${balance} USDT`
-  );
-
+  setInterval(checkTelegram, 3000);
   setInterval(checkTransfers, 10000);
 }
 
