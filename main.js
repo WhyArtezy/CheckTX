@@ -148,8 +148,8 @@ async function checkTransfers() {
       const isIn = to === WALLET_ADDRESS;
       const type = isIn ? "🟢 USDT IN" : "🔴 USDT OUT";
       const addressLine = isIn
-        ? `From   : ${from}`
-        : `To     : ${to}`;
+        ? `From : ${from}`
+        : `To : ${to}`;
 
       const message =
 `Address : ${WALLET_ADDRESS}
