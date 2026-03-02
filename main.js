@@ -220,9 +220,10 @@ Balance : ${balance} USDT
 ${type}
 ${addressLine}
 Jumlah : ${amount} USDT
-Block  : ${e.blockNumber}
-Waktu  : ${time}
-Tx     : <a href="${txUrl}">${e.transactionHash}</a>
+Block : ${e.blockNumber}
+Tx : <a href="${txUrl}">${e.transactionHash}</a>
+
+${time}
 `;
 
       for (const chatId of Object.keys(users)) {
