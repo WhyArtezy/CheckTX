@@ -208,8 +208,7 @@ async function checkTransfers() {
         ? `From : ${from}`
         : `To : ${to}`;
 
-      const message =
-const addressUrl = `https://celoscan.io/address/${WALLET_ADDRESS}#tokentxns`;
+      const addressUrl = `https://celoscan.io/address/${WALLET_ADDRESS}#tokentxns`;
 const txUrl = `https://celoscan.io/tx/${e.transactionHash}`;
 
 const message =
