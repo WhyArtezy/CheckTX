@@ -234,11 +234,11 @@ async function checkTransfers() {
         const block = await provider.getBlock(e.blockNumber);
         const dateObj = new Date(block.timestamp * 1000);
 
-        const day = dateObj.getDate();
-        const month = dateObj.getMonth() + 1;
+        const day = String(dateObj.getDate()).padStart(2, "0");
+        const month = String(dateObj.getMonth() + 1).padStart(2, "0");
         const year = dateObj.getFullYear();
 
-        const hours = dateObj.getHours();
+        const hours = String(dateObj.getHours()).padStart(2, "0");
         const minutes = String(dateObj.getMinutes()).padStart(2, "0");
         const seconds = String(dateObj.getSeconds()).padStart(2, "0");
 
