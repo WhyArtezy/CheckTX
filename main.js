@@ -2,11 +2,9 @@ require("dotenv").config();
 const { ethers } = require("ethers");
 const axios = require("axios");
 
-// ===== ENV =====
 const RPC_URL = process.env.RPC_URL;
 const WALLET_ADDRESS = process.env.WALLET_ADDRESS.toLowerCase();
 const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 const USDT_CONTRACT = "0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e";
 
@@ -19,28 +17,45 @@ const ABI = [
 let provider;
 let contract;
 let lastBlock = 0;
+let TELEGRAM_CHAT_ID = null;
 
-// ===== INIT PROVIDER =====
+// ===== INIT RPC =====
 function initProvider() {
   console.log("🔄 Connecting RPC...");
   provider = new ethers.JsonRpcProvider(RPC_URL);
   contract = new ethers.Contract(USDT_CONTRACT, ABI, provider);
 }
 
-// ===== TELEGRAM SEND =====
-async function sendTelegram(message) {
-  try {
-    await axios.post(
-      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
-      {
-        chat_id: TELEGRAM_CHAT_ID,
-        text: message,
-        parse_mode: "HTML"
-      }
-    );
-  } catch (err) {
-    console.log("❌ Telegram Error:", err.message);
+// ===== AUTO DETECT CHAT ID =====
+async function getChatId() {
+  if (TELEGRAM_CHAT_ID) return TELEGRAM_CHAT_ID;
+
+  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates`;
+  const res = await axios.get(url);
+
+  if (res.data.result.length === 0) {
+    console.log("⚠️ Kirim pesan dulu ke bot kamu di Telegram!");
+    return null;
   }
+
+  TELEGRAM_CHAT_ID = res.data.result[0].message.chat.id;
+  console.log("✅ Chat ID ditemukan:", TELEGRAM_CHAT_ID);
+  return TELEGRAM_CHAT_ID;
+}
+
+// ===== SEND TELEGRAM =====
+async function sendTelegram(message) {
+  const chatId = await getChatId();
+  if (!chatId) return;
+
+  await axios.post(
+    `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
+    {
+      chat_id: chatId,
+      text: message,
+      parse_mode: "HTML"
+    }
+  );
 }
 
 // ===== SAFE CALL =====
@@ -54,7 +69,7 @@ async function safeCall(fn) {
   }
 }
 
-// ===== CHECK SALDO =====
+// ===== CHECK BALANCE =====
 async function checkBalance() {
   const decimals = await safeCall(() => contract.decimals());
   if (!decimals) return;
@@ -62,8 +77,7 @@ async function checkBalance() {
   const raw = await safeCall(() => contract.balanceOf(WALLET_ADDRESS));
   if (!raw) return;
 
-  const formatted = ethers.formatUnits(raw, decimals);
-  return formatted;
+  return ethers.formatUnits(raw, decimals);
 }
 
 // ===== CHECK TRANSFER =====
@@ -76,9 +90,8 @@ async function checkTransfers() {
     return;
   }
 
-  const filter = contract.filters.Transfer();
   const events = await safeCall(() =>
-    contract.queryFilter(filter, lastBlock, currentBlock)
+    contract.queryFilter(contract.filters.Transfer(), lastBlock, currentBlock)
   );
 
   if (!events) return;
@@ -100,8 +113,6 @@ async function checkTransfers() {
 Jumlah: <b>${amount} USDT</b>
 Saldo: <b>${balance} USDT</b>
 
-From: <code>${from}</code>
-To: <code>${to}</code>
 Tx: https://celoscan.io/tx/${e.transactionHash}
 `;
 
