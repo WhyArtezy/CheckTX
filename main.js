@@ -111,7 +111,12 @@ async function sendOrEdit(chatId, text) {
 
       const res = await axios.post(
         `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
-        { chat_id: chatId, text }
+        { 
+          chat_id: chatId, 
+          text,
+          parse_mode: "HTML",
+          disable_web_page_preview: true
+        }
       );
 
       users[chatId].messageId = res.data.result.message_id;
@@ -124,7 +129,9 @@ async function sendOrEdit(chatId, text) {
         {
           chat_id: chatId,
           message_id: users[chatId].messageId,
-          text
+          text,
+          parse_mode: "HTML",
+          disable_web_page_preview: true
         }
       );
 
@@ -135,14 +142,11 @@ async function sendOrEdit(chatId, text) {
     if (err.response) {
       const code = err.response.data.error_code;
 
-      // Jika user blokir bot
       if (code === 403) {
-        console.log("User blokir, dihapus:", chatId);
         delete users[chatId];
         saveUsers();
       }
 
-      // Hindari error message is not modified
       if (code === 400) return;
 
       console.log(err.response.data);
@@ -205,7 +209,11 @@ async function checkTransfers() {
         : `To : ${to}`;
 
       const message =
-`Address : ${WALLET_ADDRESS}
+const addressUrl = `https://celoscan.io/address/${WALLET_ADDRESS}#tokentxns`;
+const txUrl = `https://celoscan.io/tx/${e.transactionHash}`;
+
+const message =
+`Address : <a href="${addressUrl}">${WALLET_ADDRESS}</a>
 Balance : ${balance} USDT
 
 ━━━━━━━━━━━━━━━━
@@ -213,10 +221,9 @@ Balance : ${balance} USDT
 ${type}
 ${addressLine}
 Jumlah : ${amount} USDT
-Block : ${e.blockNumber}
-Tx : ${e.transactionHash}
-
-${time}
+Block  : ${e.blockNumber}
+Waktu  : ${time}
+Tx     : <a href="${txUrl}">${e.transactionHash}</a>
 `;
 
       for (const chatId of Object.keys(users)) {
