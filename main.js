@@ -1,3 +1,5 @@
+process.stdout.write('\x1Bc');
+
 require("dotenv").config();
 const { ethers } = require("ethers");
 const axios = require("axios");
