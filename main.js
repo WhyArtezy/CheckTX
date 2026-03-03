@@ -38,8 +38,17 @@ let users = {};
 // ================= USER STORAGE =================
 
 function loadUsers() {
-  if (fs.existsSync(USER_FILE)) {
-    users = JSON.parse(fs.readFileSync(USER_FILE));
+  if (!fs.existsSync(USER_FILE)) {
+    users = {};
+    return;
+  }
+
+  try {
+    const data = fs.readFileSync(USER_FILE, "utf8").trim();
+    users = data ? JSON.parse(data) : {};
+  } catch {
+    users = {};
+    saveUsers();
   }
 }
 
@@ -52,7 +61,6 @@ function saveUsers() {
 function loadLastBlock() {
   if (fs.existsSync(BLOCK_FILE)) {
     lastBlock = parseInt(fs.readFileSync(BLOCK_FILE));
-    console.log("Loaded lastBlock:", lastBlock);
   }
 }
 
@@ -60,7 +68,7 @@ function saveLastBlock(block) {
   fs.writeFileSync(BLOCK_FILE, block.toString());
 }
 
-// ================= RPC SPEED TEST =================
+// ================= RPC SPEED =================
 
 async function testRpcSpeed(rpc) {
   const start = Date.now();
@@ -74,49 +82,33 @@ async function testRpcSpeed(rpc) {
 }
 
 async function rankRpcs() {
-  console.log("⚡ Testing RPC speed...");
   const results = [];
-
   for (const rpc of RPC_LIST) {
-    const result = await testRpcSpeed(rpc);
-    console.log(`${rpc} → ${result.speed} ms`);
-    results.push(result);
+    results.push(await testRpcSpeed(rpc));
   }
-
   results.sort((a, b) => a.speed - b.speed);
   sortedRpcList = results.map(r => r.rpc);
-
-  console.log("🏆 Fastest RPC:", sortedRpcList[0]);
 }
-
-// ================= RPC INIT =================
 
 function initProvider() {
   const rpc = sortedRpcList[currentRpcIndex];
-  console.log("🔄 Using RPC:", rpc);
-
   provider = new ethers.JsonRpcProvider(rpc, {
     name: "celo",
     chainId: 42220
   });
-
   contract = new ethers.Contract(USDT_CONTRACT, ABI, provider);
 }
 
 function switchRpc() {
   currentRpcIndex++;
-  if (currentRpcIndex >= sortedRpcList.length) {
-    currentRpcIndex = 0;
-  }
-  console.log("⚠ Switching RPC...");
+  if (currentRpcIndex >= sortedRpcList.length) currentRpcIndex = 0;
   initProvider();
 }
 
 async function safeCall(fn) {
   try {
     return await fn();
-  } catch (err) {
-    console.log("⚠ RPC error detected");
+  } catch {
     switchRpc();
     return null;
   }
@@ -140,17 +132,34 @@ async function checkTelegram() {
     for (const update of res.data.result) {
       lastUpdateId = update.update_id;
 
+      // /start
       if (update.message && update.message.text === "/start") {
         const chatId = String(update.message.chat.id);
-
         if (!users[chatId]) {
           users[chatId] = { messageId: null };
           saveUsers();
-          console.log("User baru:", chatId);
         }
       }
-    }
 
+      // BUTTON CLICK
+      if (update.callback_query) {
+        const chatId = String(update.callback_query.message.chat.id);
+        const messageId = update.callback_query.message.message_id;
+
+        await axios.post(
+          `https://api.telegram.org/bot${TELEGRAM_TOKEN}/answerCallbackQuery`,
+          { callback_query_id: update.callback_query.id }
+        );
+
+        await axios.post(
+          `https://api.telegram.org/bot${TELEGRAM_TOKEN}/deleteMessage`,
+          {
+            chat_id: chatId,
+            message_id: messageId
+          }
+        );
+      }
+    }
   } catch {}
 }
 
@@ -184,21 +193,40 @@ async function sendOrEdit(chatId, text) {
           disable_web_page_preview: true
         }
       );
-
     }
 
   } catch (err) {
-
-    if (err.response) {
-      const code = err.response.data.error_code;
-
-      if (code === 403) {
-        delete users[chatId];
-        saveUsers();
-      }
-
-      if (code === 400) return;
+    if (err.response && err.response.data.error_code === 403) {
+      delete users[chatId];
+      saveUsers();
     }
+  }
+}
+
+// ================= ALERT BESAR =================
+
+async function sendLargeAlert(amount, txHash, blockNumber) {
+  for (const chatId of Object.keys(users)) {
+    await axios.post(
+      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
+      {
+        chat_id: chatId,
+        text:
+`🚨 <b>ALERT TRANSAKSI BESAR</b>
+
+Jumlah : <b>${amount} USDT</b>
+Block : ${blockNumber}
+Tx : ${txHash}
+
+Klik tombol untuk menutup alert.`,
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "✅ Tutup Alert", callback_data: "delete_alert" }]
+          ]
+        }
+      }
+    );
   }
 }
 
@@ -209,9 +237,7 @@ async function checkTransfers() {
   const currentBlock = await safeCall(() => provider.getBlockNumber());
   if (!currentBlock) return;
 
-  if (lastBlock === 0) {
-    lastBlock = currentBlock - 1;
-  }
+  if (lastBlock === 0) lastBlock = currentBlock - 1;
 
   const events = await safeCall(() =>
     contract.queryFilter(contract.filters.Transfer(), lastBlock + 1, currentBlock)
@@ -230,6 +256,10 @@ async function checkTransfers() {
         const amount = ethers.formatUnits(e.args.value, decimals);
         const balanceRaw = await contract.balanceOf(WALLET_ADDRESS);
         const balance = ethers.formatUnits(balanceRaw, decimals);
+
+        if (parseFloat(amount) > 1000) {
+          await sendLargeAlert(amount, e.transactionHash, e.blockNumber);
+        }
 
         const block = await provider.getBlock(e.blockNumber);
         const dateObj = new Date(block.timestamp * 1000);
@@ -289,16 +319,11 @@ async function transferLoop() {
 // ================= START =================
 
 async function start() {
-
   await removeWebhook();
   loadUsers();
   loadLastBlock();
-
   await rankRpcs();
   initProvider();
-
-  console.log("🚀 Bot Aktif");
-  console.log("Total user:", Object.keys(users).length);
 
   setInterval(checkTelegram, 10000);
   transferLoop();
