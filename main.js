@@ -82,12 +82,22 @@ async function testRpcSpeed(rpc) {
 }
 
 async function rankRpcs() {
+
+  console.log("⚡ Testing RPC speed...");
+
   const results = [];
+
   for (const rpc of RPC_LIST) {
-    results.push(await testRpcSpeed(rpc));
+    const result = await testRpcSpeed(rpc);
+    console.log(`${rpc} → ${result.speed} ms`);
+    results.push(result);
   }
+
   results.sort((a, b) => a.speed - b.speed);
+
   sortedRpcList = results.map(r => r.rpc);
+
+  console.log("🏆 Fastest RPC:", sortedRpcList[0]);
 }
 
 function initProvider() {
