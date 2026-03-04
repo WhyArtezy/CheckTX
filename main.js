@@ -37,7 +37,9 @@ const INTERVAL_DELAY = 10000;
 
 const USER_FILE = "user.json";
 const BLOCK_FILE = "lastblock.txt";
+
 let users = {};
+let lastMessageCache = null;
 
 // ================= USER STORAGE =================
 
@@ -126,33 +128,6 @@ async function removeWebhook() {
   } catch {}
 }
 
-async function checkTelegram() {
-  try {
-    const res = await axios.get(
-      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates`,
-      { params: { offset: lastUpdateId + 1 } }
-    );
-
-    for (const update of res.data.result) {
-      lastUpdateId = update.update_id;
-
-      if (update.message && update.message.text === "/start") {
-        const chatId = String(update.message.chat.id);
-
-        // 🔄 RESET USER jika sudah ada
-        if (users[chatId]) {
-          delete users[chatId];
-          console.log("🔄 User refresh:", chatId);
-        }
-
-        users[chatId] = { messageId: null };
-        saveUsers();
-      }
-    }
-
-  } catch {}
-}
-
 async function sendOrEdit(chatId, text) {
   try {
 
@@ -199,6 +174,64 @@ async function sendOrEdit(chatId, text) {
       if (code === 400) return;
     }
   }
+}
+
+// ================= HISTORY =================
+
+async function sendLastHistory(chatId) {
+
+  if (lastMessageCache) {
+    await sendOrEdit(chatId, lastMessageCache);
+    return;
+  }
+
+  const decimals = await contract.decimals();
+  const balanceRaw = await contract.balanceOf(WALLET_ADDRESS);
+  const balance = ethers.formatUnits(balanceRaw, decimals);
+
+  const addressUrl = `https://celoscan.io/address/${WALLET_ADDRESS}#tokentxns`;
+
+  const message =
+`Address : <a href="${addressUrl}">${WALLET_ADDRESS}</a>
+Balance : ${balance} USDT
+
+━━━━━━━━━━━━━━━━
+
+Belum ada transaksi terbaru.
+
+${new Date().toLocaleString()}
+`;
+
+  await sendOrEdit(chatId, message);
+}
+
+async function checkTelegram() {
+  try {
+    const res = await axios.get(
+      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates`,
+      { params: { offset: lastUpdateId + 1 } }
+    );
+
+    for (const update of res.data.result) {
+      lastUpdateId = update.update_id;
+
+      if (update.message && update.message.text === "/start") {
+
+        const chatId = String(update.message.chat.id);
+
+        if (users[chatId]) {
+          delete users[chatId];
+          console.log("🔄 User refresh:", chatId);
+        }
+
+        users[chatId] = { messageId: null };
+        saveUsers();
+
+        await sendLastHistory(chatId);
+      }
+    }
+
+  } catch {}
 }
 
 // ================= DASHBOARD =================
@@ -250,7 +283,6 @@ async function checkTransfers() {
         const day = String(dateObj.getDate()).padStart(2, "0");
         const month = String(dateObj.getMonth() + 1).padStart(2, "0");
         const year = dateObj.getFullYear();
-
         const hours = String(dateObj.getHours()).padStart(2, "0");
         const minutes = String(dateObj.getMinutes()).padStart(2, "0");
         const seconds = String(dateObj.getSeconds()).padStart(2, "0");
@@ -278,6 +310,8 @@ Tx : <a href="${txUrl}">${e.transactionHash}</a>
 
 ${time}
 `;
+
+        lastMessageCache = message;
 
         for (const chatId of Object.keys(users)) {
           await sendOrEdit(chatId, message);
