@@ -308,7 +308,7 @@ setInterval(() => {
   console.log(`RPC Aktif         : ${CURRENT_RPC}`);
   console.log(`Delay Interval    : ${INTERVAL_DELAY / 1000} detik`);
   console.log(`Status Koneksi    : ${CONNECTION_STATUS}`);
-}, 60000);
+}, 10000);
 
 // ================= START =================
 
