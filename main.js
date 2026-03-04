@@ -158,7 +158,7 @@ async function sendBigAlert(chatId, text) {
       disable_web_page_preview: true,
       reply_markup: {
         inline_keyboard: [
-          [{ text: "✅ Tandai Sudah Dilihat", callback_data: "delete_alert" }]
+          [{ text: "Tandai Sudah Dilihat", callback_data: "delete_alert" }]
         ]
       }
     }
@@ -206,7 +206,7 @@ async function checkTelegram() {
           `https://api.telegram.org/bot${TELEGRAM_TOKEN}/answerCallbackQuery`,
           {
             callback_query_id: update.callback_query.id,
-            text: "Alert dihapus ✅"
+            text: "Alert dihapus"
           }
         );
       }
@@ -303,11 +303,11 @@ Segera periksa transaksi ini!`;
 
 setInterval(() => {
   process.stdout.write("\x1Bc");
-  console.log(`👥 Total user        : ${Object.keys(users).length}`);
-  console.log(`🧱 Block terakhir    : ${lastBlock}`);
-  console.log(`⚡ RPC aktif         : ${CURRENT_RPC}`);
-  console.log(`⏱ Delay interval    : ${INTERVAL_DELAY / 1000} detik`);
-  console.log(`📡 Status koneksi    : ${CONNECTION_STATUS}`);
+  console.log(`Total Iser        : ${Object.keys(users).length}`);
+  console.log(`Block Terakhir    : ${lastBlock}`);
+  console.log(`RPC Aktif         : ${CURRENT_RPC}`);
+  console.log(`Delay Interval    : ${INTERVAL_DELAY / 1000} detik`);
+  console.log(`Status Koneksi    : ${CONNECTION_STATUS}`);
 }, 60000);
 
 // ================= START =================
@@ -324,9 +324,9 @@ async function start() {
   while (true) {
     try {
       await checkTransfers();
-      CONNECTION_STATUS = "🟢 Connected";
+      CONNECTION_STATUS = "Connected";
     } catch {
-      CONNECTION_STATUS = "🔴 Reconnecting...";
+      CONNECTION_STATUS = "Reconnecting";
       currentRpcIndex = (currentRpcIndex + 1) % sortedRpcList.length;
       initProvider();
     }
