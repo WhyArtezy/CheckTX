@@ -274,7 +274,7 @@ function renderDashboard() {
   console.log("👥 Total User      :", Object.keys(users).length);
   console.log("🧱 Block Terakhir  :", lastBlock);
   console.log("⚡ RPC Aktif       :", CURRENT_RPC);
-  console.log("⏱ Delay Interval  :", INTERVAL_DELAY / 1000, "detik");
+  console.log("⏱ Delay Interval   :", INTERVAL_DELAY / 1000, "detik");
   console.log("📡 Status Koneksi  :", CONNECTION_STATUS);
   console.log("\n======================================");
 }
