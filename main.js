@@ -40,20 +40,23 @@ const BLOCK_FILE = "lastblock.txt";
 
 let users = {};
 let lastMessageCache = null;
+let alertMessages = {};
 
-// ================= USER STORAGE =================
+// ================= FILE HANDLING =================
 
 function loadUsers() {
-  if (fs.existsSync(USER_FILE)) {
-    users = JSON.parse(fs.readFileSync(USER_FILE));
+  try {
+    if (fs.existsSync(USER_FILE)) {
+      users = JSON.parse(fs.readFileSync(USER_FILE));
+    }
+  } catch {
+    users = {};
   }
 }
 
 function saveUsers() {
   fs.writeFileSync(USER_FILE, JSON.stringify(users, null, 2));
 }
-
-// ================= BLOCK STORAGE =================
 
 function loadLastBlock() {
   if (fs.existsSync(BLOCK_FILE)) {
@@ -103,9 +106,7 @@ function initProvider() {
 
 function switchRpc() {
   currentRpcIndex++;
-  if (currentRpcIndex >= sortedRpcList.length) {
-    currentRpcIndex = 0;
-  }
+  if (currentRpcIndex >= sortedRpcList.length) currentRpcIndex = 0;
   initProvider();
 }
 
@@ -128,11 +129,18 @@ async function removeWebhook() {
   } catch {}
 }
 
+async function deleteMessage(chatId, messageId) {
+  try {
+    await axios.post(
+      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/deleteMessage`,
+      { chat_id: chatId, message_id: messageId }
+    );
+  } catch {}
+}
+
 async function sendOrEdit(chatId, text) {
   try {
-
     if (!users[chatId].messageId) {
-
       const res = await axios.post(
         `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
         {
@@ -142,12 +150,9 @@ async function sendOrEdit(chatId, text) {
           disable_web_page_preview: true
         }
       );
-
       users[chatId].messageId = res.data.result.message_id;
       saveUsers();
-
     } else {
-
       await axios.post(
         `https://api.telegram.org/bot${TELEGRAM_TOKEN}/editMessageText`,
         {
@@ -158,28 +163,37 @@ async function sendOrEdit(chatId, text) {
           disable_web_page_preview: true
         }
       );
-
     }
-
   } catch (err) {
-
-    if (err.response) {
-      const code = err.response.data.error_code;
-
-      if (code === 403) {
-        delete users[chatId];
-        saveUsers();
-      }
-
-      if (code === 400) return;
+    if (err.response?.data?.error_code === 403) {
+      delete users[chatId];
+      saveUsers();
     }
   }
+}
+
+async function sendBigAlert(chatId, text) {
+  try {
+    const res = await axios.post(
+      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
+      {
+        chat_id: chatId,
+        text,
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "✅ Tandai Sudah Dilihat", callback_data: "delete_alert" }]
+          ]
+        }
+      }
+    );
+    alertMessages[chatId] = res.data.result.message_id;
+  } catch {}
 }
 
 // ================= HISTORY =================
 
 async function sendLastHistory(chatId) {
-
   if (lastMessageCache) {
     await sendOrEdit(chatId, lastMessageCache);
     return;
@@ -189,10 +203,8 @@ async function sendLastHistory(chatId) {
   const balanceRaw = await contract.balanceOf(WALLET_ADDRESS);
   const balance = ethers.formatUnits(balanceRaw, decimals);
 
-  const addressUrl = `https://celoscan.io/address/${WALLET_ADDRESS}#tokentxns`;
-
   const message =
-`Address : <a href="${addressUrl}">${WALLET_ADDRESS}</a>
+`Address : https://celoscan.io/address/${WALLET_ADDRESS}
 Balance : ${balance} USDT
 
 ━━━━━━━━━━━━━━━━
@@ -201,9 +213,10 @@ Belum ada transaksi terbaru.
 
 ${new Date().toLocaleString()}
 `;
-
   await sendOrEdit(chatId, message);
 }
+
+// ================= TELEGRAM POLLING =================
 
 async function checkTelegram() {
   try {
@@ -215,22 +228,41 @@ async function checkTelegram() {
     for (const update of res.data.result) {
       lastUpdateId = update.update_id;
 
-      if (update.message && update.message.text === "/start") {
+      // HANDLE START
+      if (update.message?.text === "/start") {
 
         const chatId = String(update.message.chat.id);
+        const userMsgId = update.message.message_id;
 
-        if (users[chatId]) {
-          delete users[chatId];
-          console.log("🔄 User refresh:", chatId);
+        if (users[chatId]?.messageId) {
+          await deleteMessage(chatId, users[chatId].messageId);
         }
+
+        await deleteMessage(chatId, userMsgId);
 
         users[chatId] = { messageId: null };
         saveUsers();
 
         await sendLastHistory(chatId);
       }
-    }
 
+      // HANDLE ALERT BUTTON
+      if (update.callback_query) {
+        const chatId = String(update.callback_query.message.chat.id);
+        const messageId = update.callback_query.message.message_id;
+
+        if (update.callback_query.data === "delete_alert") {
+          await deleteMessage(chatId, messageId);
+          await axios.post(
+            `https://api.telegram.org/bot${TELEGRAM_TOKEN}/answerCallbackQuery`,
+            {
+              callback_query_id: update.callback_query.id,
+              text: "Alert dihapus ✅"
+            }
+          );
+        }
+      }
+    }
   } catch {}
 }
 
@@ -238,7 +270,6 @@ async function checkTelegram() {
 
 function renderDashboard() {
   process.stdout.write("\x1Bc");
-
   console.log("========= CELO USDT MONITOR =========\n");
   console.log("👥 Total User      :", Object.keys(users).length);
   console.log("🧱 Block Terakhir  :", lastBlock);
@@ -255,16 +286,13 @@ async function checkTransfers() {
   const currentBlock = await safeCall(() => provider.getBlockNumber());
   if (!currentBlock) return;
 
-  if (lastBlock === 0) {
-    lastBlock = currentBlock - 1;
-  }
+  if (lastBlock === 0) lastBlock = currentBlock - 1;
 
   const events = await safeCall(() =>
     contract.queryFilter(contract.filters.Transfer(), lastBlock + 1, currentBlock)
   );
 
-  if (events && events.length > 0) {
-
+  if (events?.length) {
     for (const e of events) {
 
       const from = e.args.from.toLowerCase();
@@ -278,35 +306,27 @@ async function checkTransfers() {
         const balance = ethers.formatUnits(balanceRaw, decimals);
 
         const block = await provider.getBlock(e.blockNumber);
-        const dateObj = new Date(block.timestamp * 1000);
+        const d = new Date(block.timestamp * 1000);
+        const pad = n => String(n).padStart(2,"0");
 
-        const day = String(dateObj.getDate()).padStart(2, "0");
-        const month = String(dateObj.getMonth() + 1).padStart(2, "0");
-        const year = dateObj.getFullYear();
-        const hours = String(dateObj.getHours()).padStart(2, "0");
-        const minutes = String(dateObj.getMinutes()).padStart(2, "0");
-        const seconds = String(dateObj.getSeconds()).padStart(2, "0");
-
-        const time = `${day}/${month}/${year} | ${hours}.${minutes}.${seconds}`;
+        const time =
+`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} | ${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}`;
 
         const isIn = to === WALLET_ADDRESS;
         const type = isIn ? "🟢 USDT IN" : "🔴 USDT OUT";
-        const addressLine = isIn ? `From : ${from}` : `To : ${to}`;
-
-        const addressUrl = `https://celoscan.io/address/${WALLET_ADDRESS}#tokentxns`;
-        const txUrl = `https://celoscan.io/tx/${e.transactionHash}`;
+        const addrLine = isIn ? `From : ${from}` : `To : ${to}`;
 
         const message =
-`Address : <a href="${addressUrl}">${WALLET_ADDRESS}</a>
+`Address : https://celoscan.io/address/${WALLET_ADDRESS}
 Balance : ${balance} USDT
 
 ━━━━━━━━━━━━━━━━
 
 ${type}
-${addressLine}
+${addrLine}
 Jumlah : ${amount} USDT
 Block : ${e.blockNumber}
-Tx : <a href="${txUrl}">${e.transactionHash}</a>
+Tx : https://celoscan.io/tx/${e.transactionHash}
 
 ${time}
 `;
@@ -315,6 +335,23 @@ ${time}
 
         for (const chatId of Object.keys(users)) {
           await sendOrEdit(chatId, message);
+        }
+
+        // 🚨 ALERT > 1000
+        if (parseFloat(amount) > 1000) {
+
+          const alertText =
+`🚨 <b>ALERT TRANSAKSI BESAR</b>
+
+Jumlah : ${amount} USDT
+Block  : ${e.blockNumber}
+Tx     : https://celoscan.io/tx/${e.transactionHash}
+
+Segera periksa transaksi ini!`;
+
+          for (const chatId of Object.keys(users)) {
+            await sendBigAlert(chatId, alertText);
+          }
         }
       }
     }
@@ -344,12 +381,10 @@ async function start() {
   await rankRpcs();
   initProvider();
 
-  console.log("🚀 Bot Aktif");
-
   renderDashboard();
   setInterval(renderDashboard, 60000);
 
-  setInterval(checkTelegram, 10000);
+  setInterval(checkTelegram, 5000);
   transferLoop();
 }
 
