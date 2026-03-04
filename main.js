@@ -40,14 +40,15 @@ const BLOCK_FILE = "lastblock.txt";
 
 let users = {};
 let lastMessageCache = null;
-let alertMessages = {};
+let processedTx = new Set();
 
-// ================= FILE HANDLING =================
+// ================= FILE =================
 
 function loadUsers() {
   try {
     if (fs.existsSync(USER_FILE)) {
-      users = JSON.parse(fs.readFileSync(USER_FILE));
+      const data = fs.readFileSync(USER_FILE, "utf8");
+      users = data ? JSON.parse(data) : {};
     }
   } catch {
     users = {};
@@ -68,57 +69,32 @@ function saveLastBlock(block) {
   fs.writeFileSync(BLOCK_FILE, block.toString());
 }
 
-// ================= RPC SPEED =================
-
-async function testRpcSpeed(rpc) {
-  const start = Date.now();
-  try {
-    const temp = new ethers.JsonRpcProvider(rpc);
-    await temp.getBlockNumber();
-    return { rpc, speed: Date.now() - start };
-  } catch {
-    return { rpc, speed: 999999 };
-  }
-}
+// ================= RPC =================
 
 async function rankRpcs() {
   const results = [];
   for (const rpc of RPC_LIST) {
-    results.push(await testRpcSpeed(rpc));
+    try {
+      const start = Date.now();
+      const temp = new ethers.JsonRpcProvider(rpc);
+      await temp.getBlockNumber();
+      results.push({ rpc, speed: Date.now() - start });
+    } catch {
+      results.push({ rpc, speed: 999999 });
+    }
   }
   results.sort((a, b) => a.speed - b.speed);
   sortedRpcList = results.map(r => r.rpc);
 }
 
-// ================= RPC INIT =================
-
 function initProvider() {
   const rpc = sortedRpcList[currentRpcIndex];
   CURRENT_RPC = rpc;
-
   provider = new ethers.JsonRpcProvider(rpc, {
     name: "celo",
     chainId: 42220
   });
-
   contract = new ethers.Contract(USDT_CONTRACT, ABI, provider);
-}
-
-function switchRpc() {
-  currentRpcIndex++;
-  if (currentRpcIndex >= sortedRpcList.length) currentRpcIndex = 0;
-  initProvider();
-}
-
-async function safeCall(fn) {
-  try {
-    CONNECTION_STATUS = "🟢 Connected";
-    return await fn();
-  } catch {
-    CONNECTION_STATUS = "🔴 RPC Error";
-    switchRpc();
-    return null;
-  }
 }
 
 // ================= TELEGRAM =================
@@ -173,47 +149,20 @@ async function sendOrEdit(chatId, text) {
 }
 
 async function sendBigAlert(chatId, text) {
-  try {
-    const res = await axios.post(
-      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
-      {
-        chat_id: chatId,
-        text,
-        parse_mode: "HTML",
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "✅ Tandai Sudah Dilihat", callback_data: "delete_alert" }]
-          ]
-        }
+  await axios.post(
+    `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
+    {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "✅ Tandai Sudah Dilihat", callback_data: "delete_alert" }]
+        ]
       }
-    );
-    alertMessages[chatId] = res.data.result.message_id;
-  } catch {}
-}
-
-// ================= HISTORY =================
-
-async function sendLastHistory(chatId) {
-  if (lastMessageCache) {
-    await sendOrEdit(chatId, lastMessageCache);
-    return;
-  }
-
-  const decimals = await contract.decimals();
-  const balanceRaw = await contract.balanceOf(WALLET_ADDRESS);
-  const balance = ethers.formatUnits(balanceRaw, decimals);
-
-  const message =
-`Address : https://celoscan.io/address/${WALLET_ADDRESS}
-Balance : ${balance} USDT
-
-━━━━━━━━━━━━━━━━
-
-Belum ada transaksi terbaru.
-
-${new Date().toLocaleString()}
-`;
-  await sendOrEdit(chatId, message);
+    }
+  );
 }
 
 // ================= TELEGRAM POLLING =================
@@ -228,7 +177,6 @@ async function checkTelegram() {
     for (const update of res.data.result) {
       lastUpdateId = update.update_id;
 
-      // HANDLE START
       if (update.message?.text === "/start") {
 
         const chatId = String(update.message.chat.id);
@@ -243,116 +191,106 @@ async function checkTelegram() {
         users[chatId] = { messageId: null };
         saveUsers();
 
-        await sendLastHistory(chatId);
+        if (lastMessageCache) {
+          await sendOrEdit(chatId, lastMessageCache);
+        }
       }
 
-      // HANDLE ALERT BUTTON
-      if (update.callback_query) {
+      if (update.callback_query?.data === "delete_alert") {
         const chatId = String(update.callback_query.message.chat.id);
         const messageId = update.callback_query.message.message_id;
 
-        if (update.callback_query.data === "delete_alert") {
-          await deleteMessage(chatId, messageId);
-          await axios.post(
-            `https://api.telegram.org/bot${TELEGRAM_TOKEN}/answerCallbackQuery`,
-            {
-              callback_query_id: update.callback_query.id,
-              text: "Alert dihapus ✅"
-            }
-          );
-        }
+        await deleteMessage(chatId, messageId);
+
+        await axios.post(
+          `https://api.telegram.org/bot${TELEGRAM_TOKEN}/answerCallbackQuery`,
+          {
+            callback_query_id: update.callback_query.id,
+            text: "Alert dihapus ✅"
+          }
+        );
       }
     }
   } catch {}
 }
 
-// ================= DASHBOARD =================
-
-function renderDashboard() {
-  process.stdout.write("\x1Bc");
-  console.log("========= CELO USDT MONITOR =========\n");
-  console.log("👥 Total User      :", Object.keys(users).length);
-  console.log("🧱 Block Terakhir  :", lastBlock);
-  console.log("⚡ RPC Aktif       :", CURRENT_RPC);
-  console.log("⏱ Delay Interval   :", INTERVAL_DELAY / 1000, "detik");
-  console.log("📡 Status Koneksi  :", CONNECTION_STATUS);
-  console.log("\n======================================");
-}
-
-// ================= TRANSFER =================
+// ================= TRANSFER CHECK =================
 
 async function checkTransfers() {
 
-  const currentBlock = await safeCall(() => provider.getBlockNumber());
-  if (!currentBlock) return;
-
+  const currentBlock = await provider.getBlockNumber();
   if (lastBlock === 0) lastBlock = currentBlock - 1;
 
-  const events = await safeCall(() =>
-    contract.queryFilter(contract.filters.Transfer(), lastBlock + 1, currentBlock)
+  const events = await contract.queryFilter(
+    contract.filters.Transfer(),
+    lastBlock + 1,
+    currentBlock
   );
 
-  if (events?.length) {
-    for (const e of events) {
+  for (const e of events) {
 
-      const from = e.args.from.toLowerCase();
-      const to = e.args.to.toLowerCase();
+    if (processedTx.has(e.transactionHash)) continue;
+    processedTx.add(e.transactionHash);
 
-      if (from === WALLET_ADDRESS || to === WALLET_ADDRESS) {
+    const from = e.args.from.toLowerCase();
+    const to = e.args.to.toLowerCase();
 
-        const decimals = await contract.decimals();
-        const amount = ethers.formatUnits(e.args.value, decimals);
-        const balanceRaw = await contract.balanceOf(WALLET_ADDRESS);
-        const balance = ethers.formatUnits(balanceRaw, decimals);
+    if (from !== WALLET_ADDRESS && to !== WALLET_ADDRESS) continue;
 
-        const block = await provider.getBlock(e.blockNumber);
-        const d = new Date(block.timestamp * 1000);
-        const pad = n => String(n).padStart(2,"0");
+    const decimals = await contract.decimals();
+    const amount = ethers.formatUnits(e.args.value, decimals);
+    const balanceRaw = await contract.balanceOf(WALLET_ADDRESS);
+    const balance = ethers.formatUnits(balanceRaw, decimals);
 
-        const time =
-`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} | ${pad(d.getHours())}.${pad(d.getMinutes())}.${pad(d.getSeconds())}`;
+    const block = await provider.getBlock(e.blockNumber);
+    const d = new Date(block.timestamp * 1000);
 
-        const isIn = to === WALLET_ADDRESS;
-        const type = isIn ? "🟢 USDT IN" : "🔴 USDT OUT";
-        const addrLine = isIn ? `From : ${from}` : `To : ${to}`;
+    const time =
+    `${String(d.getDate()).padStart(2,"0")}/` +
+    `${String(d.getMonth()+1).padStart(2,"0")}/` +
+    `${d.getFullYear()} | ` +
+    `${String(d.getHours()).padStart(2,"0")}:` +
+    `${String(d.getMinutes()).padStart(2,"0")}:` +
+    `${String(d.getSeconds()).padStart(2,"0")}`;
 
-        const message =
-`Address : https://celoscan.io/address/${WALLET_ADDRESS}
+    const isIn = to === WALLET_ADDRESS;
+    const type = isIn ? "🟢 USDT IN" : "🔴 USDT OUT";
+    const counterparty = isIn ? from : to;
+
+    const message =
+`Address : <a href="https://celoscan.io/address/${WALLET_ADDRESS}">${WALLET_ADDRESS}</a>
 Balance : ${balance} USDT
 
 ━━━━━━━━━━━━━━━━
 
 ${type}
-${addrLine}
+${isIn ? "From" : "To"} : <a href="https://celoscan.io/address/${counterparty}">${counterparty}</a>
 Jumlah : ${amount} USDT
 Block : ${e.blockNumber}
-Tx : https://celoscan.io/tx/${e.transactionHash}
+Tx : <a href="https://celoscan.io/tx/${e.transactionHash}">${e.transactionHash}</a>
 
 ${time}
 `;
 
-        lastMessageCache = message;
+    lastMessageCache = message;
 
-        for (const chatId of Object.keys(users)) {
-          await sendOrEdit(chatId, message);
-        }
+    for (const chatId of Object.keys(users)) {
+      await sendOrEdit(chatId, message);
+    }
 
-        // 🚨 ALERT > 1000
-        if (parseFloat(amount) > 1000) {
+    if (parseFloat(amount) > 1000) {
 
-          const alertText =
+      const alertText =
 `🚨 <b>ALERT TRANSAKSI BESAR</b>
 
 Jumlah : ${amount} USDT
 Block  : ${e.blockNumber}
-Tx     : https://celoscan.io/tx/${e.transactionHash}
+Tx     : <a href="https://celoscan.io/tx/${e.transactionHash}">${e.transactionHash}</a>
 
 Segera periksa transaksi ini!`;
 
-          for (const chatId of Object.keys(users)) {
-            await sendBigAlert(chatId, alertText);
-          }
-        }
+      for (const chatId of Object.keys(users)) {
+        await sendBigAlert(chatId, alertText);
       }
     }
   }
@@ -361,31 +299,40 @@ Segera periksa transaksi ini!`;
   saveLastBlock(currentBlock);
 }
 
-// ================= LOOP =================
+// ================= TERMINAL STATUS =================
 
-async function transferLoop() {
-  while (true) {
-    await checkTransfers();
-    await new Promise(r => setTimeout(r, INTERVAL_DELAY));
-  }
-}
+setInterval(() => {
+  process.stdout.write("\x1Bc");
+  console.log(`👥 Total user        : ${Object.keys(users).length}`);
+  console.log(`🧱 Block terakhir    : ${lastBlock}`);
+  console.log(`⚡ RPC aktif         : ${CURRENT_RPC}`);
+  console.log(`⏱ Delay interval    : ${INTERVAL_DELAY / 1000} detik`);
+  console.log(`📡 Status koneksi    : ${CONNECTION_STATUS}`);
+}, 60000);
 
 // ================= START =================
 
 async function start() {
-
   await removeWebhook();
   loadUsers();
   loadLastBlock();
-
   await rankRpcs();
   initProvider();
 
-  renderDashboard();
-  setInterval(renderDashboard, 60000);
-
   setInterval(checkTelegram, 5000);
-  transferLoop();
+
+  while (true) {
+    try {
+      await checkTransfers();
+      CONNECTION_STATUS = "🟢 Connected";
+    } catch {
+      CONNECTION_STATUS = "🔴 Reconnecting...";
+      currentRpcIndex = (currentRpcIndex + 1) % sortedRpcList.length;
+      initProvider();
+    }
+
+    await new Promise(r => setTimeout(r, INTERVAL_DELAY));
+  }
 }
 
 start();
