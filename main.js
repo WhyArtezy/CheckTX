@@ -33,7 +33,7 @@ let lastUpdateId = 0;
 
 let CURRENT_RPC = "";
 let CONNECTION_STATUS = "🟢 Connected";
-const INTERVAL_DELAY = 10000;
+const INTERVAL_DELAY = 5000;
 
 const USER_FILE = "user.json";
 const BLOCK_FILE = "lastblock.txt";
