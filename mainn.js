@@ -170,7 +170,7 @@ async function checkBalanceAlert(balance) {
   }
 
   // Alert kritis: saldo dalam range 200–249
-  if (bal >= 300 && bal < 450 && !alertSent250) {
+  if (bal >= 350 && bal < 500 && !alertSent250) {
     alertSent250 = true;
     const alertText =
 `❗ <b>SALDO MENIPIS!</b>
