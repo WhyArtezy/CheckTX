@@ -184,7 +184,7 @@ async function checkBalanceAlert(balance) {
 Saldo USDT sekarang hanya <b>${parseFloat(balance).toFixed(2)} USDT</b>
 Range  : 200 - 250 USDT
 
-Segera top up sebelum operasional terganggu!`;
+Awas Nyangkut!`;
     await Promise.all(
       Object.keys(users).map(chatId => sendBigAlert(chatId, alertText))
     );
@@ -200,7 +200,7 @@ Segera top up sebelum operasional terganggu!`;
 Saldo USDT sekarang <b>${parseFloat(balance).toFixed(2)} USDT</b>
 Range  : 400 - 500 USDT
 
-Pertimbangkan untuk segera top up.`;
+Hey Antek Antek Asing.`;
     await Promise.all(
       Object.keys(users).map(chatId => sendBigAlert(chatId, alertText))
     );
