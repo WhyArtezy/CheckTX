@@ -164,7 +164,7 @@ async function checkBalanceAlert(balance) {
   const bal = parseFloat(balance);
 
   // Reset flag jika saldo kembali normal
-  if (bal >= 250) {
+  if (bal >= 500) {
     alertSent250 = false;
     return;
   }
@@ -175,7 +175,7 @@ async function checkBalanceAlert(balance) {
     const alertText =
 `❗ <b>SALDO MENIPIS!</b>
 
-Saldo USDT sekarang hanya <b>${parseFloat(balance).toFixed(2)} USDT</b>
+Balance sekarang : ${parseFloat(balance).toFixed(2)} USDT</b>
 
 Awas Nyangkut!`;
     await Promise.all(
