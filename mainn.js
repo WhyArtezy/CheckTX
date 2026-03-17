@@ -173,10 +173,9 @@ async function checkBalanceAlert(balance) {
   if (bal >= 148 && bal < 250 && !alertSent250) {
     alertSent250 = true;
     const alertText =
-`🆘 <b>SALDO KRITIS!</b>
+`❗ <b>SALDO MENIPIS!</b>
 
 Saldo USDT sekarang hanya <b>${parseFloat(balance).toFixed(2)} USDT</b>
-Range  : 200 - 250 USDT
 
 Awas Nyangkut!`;
     await Promise.all(
