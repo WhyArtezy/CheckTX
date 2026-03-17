@@ -170,7 +170,7 @@ async function checkBalanceAlert(balance) {
   }
 
   // Alert kritis: saldo dalam range 200–249
-  if (bal >= 200 && bal < 250 && !alertSent250) {
+  if (bal >= 148 && bal < 250 && !alertSent250) {
     alertSent250 = true;
     const alertText =
 `🆘 <b>SALDO KRITIS!</b>
@@ -178,7 +178,7 @@ async function checkBalanceAlert(balance) {
 Saldo USDT sekarang hanya <b>${parseFloat(balance).toFixed(2)} USDT</b>
 Range  : 200 - 250 USDT
 
-Segera top up sebelum operasional terganggu!`;
+Awas Nyangkut!`;
     await Promise.all(
       Object.keys(users).map(chatId => sendBigAlert(chatId, alertText))
     );
