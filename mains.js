@@ -184,7 +184,7 @@ async function sendOrEditUsdc(chatId, text) {
   }
 }
 
-
+async function sendBigAlert(chatId, text) {
   await axios.post(
     `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
     {
