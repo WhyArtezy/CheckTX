@@ -264,7 +264,7 @@ async function checkTransfers() {
   const counterparty = isIn ? from : to;
 
   const message =
-`<b>EROPA</b>
+`<b>AMERIKA</b>
 Address : <a href="https://celoscan.io/address/${WALLET_ADDRESS}">${WALLET_ADDRESS}</a>
 Balance : ${balance} USDC
 
