@@ -301,7 +301,7 @@ Segera periksa transaksi ini!`;
   if (balanceNum < 500 && !lowBalanceAlerted) {
     lowBalanceAlerted = true;
     const lowBalanceText =
-`⚠️ <b> AMERIKA | ALERT SALDO RENDAH</b>
+`⚠️ <b> AMERIKA |  SALDO RENDAH</b>
 
 Saldo wallet saat ini hanya <b>${balance} USDC</b>
 Address : <a href="https://celoscan.io/address/${WALLET_ADDRESS}">${WALLET_ADDRESS}</a>
