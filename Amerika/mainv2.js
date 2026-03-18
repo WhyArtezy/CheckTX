@@ -265,6 +265,7 @@ async function checkTransfers() {
 
   const message =
 `<b>AMERIKA</b>
+
 Address : <a href="https://celoscan.io/address/${WALLET_ADDRESS}">${WALLET_ADDRESS}</a>
 Balance : ${balance} USDC
 
@@ -280,11 +281,12 @@ ${time}
 
   if (parseFloat(amount) > 1000) {
     const alertText =
-`🚨 <b>ALERT TRANSAKSI BESAR</b>
+`🚨 <b> AMERIKA | TRANSAKSI BESAR</b>
 
-Jumlah : ${amount} USDC
-Block  : ${e.blockNumber}
-Tx     : <a href="https://celoscan.io/tx/${e.transactionHash}">${e.transactionHash}</a>
+Address : <a href="https://celoscan.io/address/${WALLET_ADDRESS}">${WALLET_ADDRESS}</a>
+Jumlah: ${amount} USDC
+Block : ${e.blockNumber}
+Tx : <a href="https://celoscan.io/tx/${e.transactionHash}">${e.transactionHash}</a>
 
 Segera periksa transaksi ini!`;
 
@@ -299,10 +301,9 @@ Segera periksa transaksi ini!`;
   if (balanceNum < 500 && !lowBalanceAlerted) {
     lowBalanceAlerted = true;
     const lowBalanceText =
-`⚠️ <b>ALERT SALDO RENDAH</b>
+`⚠️ <b> AMERIKA | ALERT SALDO RENDAH</b>
 
-Saldo wallet saat ini hanya <b>${balance} USDC</b>, di bawah batas minimum 500 USDT.
-
+Saldo wallet saat ini hanya <b>${balance} USDC</b>
 Address : <a href="https://celoscan.io/address/${WALLET_ADDRESS}">${WALLET_ADDRESS}</a>
 
 Segera top up saldo!`;
