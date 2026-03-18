@@ -283,11 +283,17 @@ async function checkTelegram() {
         users[chatId] = { messageId: null, usdcMessageId: null };
         saveUsers();
 
+        console.log(`[/start] chatId: ${chatId}`);
+        console.log(`[/start] lastMessageCache: ${lastMessageCache ? "ADA" : "NULL"}`);
+        console.log(`[/start] lastUsdcMessageCache: ${lastUsdcMessageCache ? "ADA" : "NULL"}`);
+
         if (lastMessageCache) {
           await sendOrEdit(chatId, lastMessageCache);
+          console.log(`[/start] Pesan USDT terkirim`);
         }
         if (lastUsdcMessageCache) {
           await sendOrEditUsdc(chatId, lastUsdcMessageCache);
+          console.log(`[/start] Pesan USDC terkirim`);
         }
       }
 
@@ -343,6 +349,8 @@ async function checkTransfers() {
     scannedUpTo = currentBlock;
     return;
   }
+
+  console.log(`[checkTransfers] TX ditemukan: ${relevantEvents.length}`);
 
   const e = relevantEvents[relevantEvents.length - 1];
   processedTx.add(e.transactionHash);
@@ -468,17 +476,20 @@ async function checkUsdcTransfers() {
     currentBlock
   );
 
+  const walletList = Object.values(USDC_WALLETS).map(w => w.toLowerCase());
+
   const relevantEvents = events.filter(e => {
     const from = e.args.from.toLowerCase();
     const to   = e.args.to.toLowerCase();
-    const wallets = Object.values(USDC_WALLETS).map(w => w.toLowerCase());
-    return wallets.some(w => w === from || w === to) && !processedUsdcTx.has(e.transactionHash);
+    return walletList.some(w => w === from || w === to) && !processedUsdcTx.has(e.transactionHash);
   });
 
   if (relevantEvents.length === 0) {
     scannedUsdcUpTo = currentBlock;
     return;
   }
+
+  console.log(`[checkUsdcTransfers] TX ditemukan: ${relevantEvents.length}`);
 
   const e = relevantEvents[relevantEvents.length - 1];
   processedUsdcTx.add(e.transactionHash);
@@ -491,9 +502,7 @@ async function checkUsdcTransfers() {
 
   // Tentukan wallet mana yang terlibat
   const euroAddr = USDC_WALLETS.EURO.toLowerCase();
-  const usAddr   = USDC_WALLETS.US.toLowerCase();
-  let walletLabel = "";
-  let walletAddr  = "";
+  let walletLabel, walletAddr;
   if (to === euroAddr || from === euroAddr) {
     walletLabel = "EURO";
     walletAddr  = USDC_WALLETS.EURO;
@@ -560,7 +569,7 @@ ${time}
   scannedUsdcUpTo = currentBlock;
 }
 
-
+// ================= TERMINAL STATUS =================
 
 setInterval(() => {
   process.stdout.write("\x1Bc");
