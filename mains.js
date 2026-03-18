@@ -410,15 +410,11 @@ ${time}
   lastUsdcMessageCache = usdcMessage;
   saveCache();
 
-  // Kirim pesan USDT ke semua user secara paralel
-  await Promise.all(
-    Object.keys(users).map(chatId => sendOrEdit(chatId, message))
-  );
-
-  // Kirim pesan USDC secara terpisah ke semua user
-  await Promise.all(
-    Object.keys(users).map(chatId => sendOrEditUsdc(chatId, usdcMessage))
-  );
+  // Kirim pesan USDT dan USDC secara paralel bersamaan
+  await Promise.all([
+    ...Object.keys(users).map(chatId => sendOrEdit(chatId, message)),
+    ...Object.keys(users).map(chatId => sendOrEditUsdc(chatId, usdcMessage))
+  ]);
 
   // Cek alert saldo rendah
   await checkBalanceAlert(balance);
