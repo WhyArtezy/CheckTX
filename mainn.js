@@ -142,20 +142,24 @@ async function sendOrEdit(chatId, text) {
 }
 
 async function sendBigAlert(chatId, text) {
-  await axios.post(
-    `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
-    {
-      chat_id: chatId,
-      text,
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "Tandai Sudah Dilihat", callback_data: "delete_alert" }]
-        ]
+  try {
+    await axios.post(
+      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
+      {
+        chat_id: chatId,
+        text,
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "Tandai Sudah Dilihat", callback_data: "delete_alert" }]
+          ]
+        }
       }
-    }
-  );
+    );
+  } catch (err) {
+    console.error("[sendBigAlert ERROR]", err.response?.data || err.message);
+  }
 }
 
 // ================= BALANCE ALERT =================
@@ -169,9 +173,8 @@ async function checkBalanceAlert(balance) {
     return;
   }
 
-  // Alert kritis: saldo dalam range 200–249
+  // Alert: saldo dalam range 350–499
   if (bal >= 350 && bal < 500 && !alertSent250) {
-    alertSent250 = true;
     const alertText =
 `❗ <b>SALDO MENIPIS!</b>
 
@@ -181,6 +184,7 @@ Awas Nyangkut!`;
     await Promise.all(
       Object.keys(users).map(chatId => sendBigAlert(chatId, alertText))
     );
+    alertSent250 = true;
   }
 }
 
