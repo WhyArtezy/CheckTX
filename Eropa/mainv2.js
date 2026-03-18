@@ -264,16 +264,9 @@ async function checkTransfers() {
   const counterparty = isIn ? from : to;
 
   const message =
-`Address : <a href="https://celoscan.io/address/${WALLET_ADDRESS}">${WALLET_ADDRESS}</a>
+`<b>EROPA</b>
+Address : <a href="https://celoscan.io/address/${WALLET_ADDRESS}">${WALLET_ADDRESS}</a>
 Balance : ${balance} USDC
-
-━━━━━━━━━━━━━━━━
-
-${type}
-${isIn ? "From" : "To"} : <a href="https://celoscan.io/address/${counterparty}">${counterparty}</a>
-Jumlah : ${amount} USDC
-Block : ${e.blockNumber}
-Tx : <a href="https://celoscan.io/tx/${e.transactionHash}">${e.transactionHash}</a>
 
 ${time}
 `;
