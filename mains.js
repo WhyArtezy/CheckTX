@@ -37,6 +37,7 @@ let sortedRpcList = [];
 let currentRpcIndex = 0;
 let lastUpdateId = 0;
 let scannedUpTo = 0;
+let scannedUsdcUpTo = 0;
 
 let CURRENT_RPC = "";
 let CONNECTION_STATUS = "🟢 Connected";
@@ -49,6 +50,7 @@ let users = {};
 let lastMessageCache = null;
 let lastUsdcMessageCache = null;
 let processedTx = new Set();
+let processedUsdcTx = new Set();
 
 // ================= BALANCE ALERT STATE =================
 
@@ -410,11 +412,15 @@ ${time}
   lastUsdcMessageCache = usdcMessage;
   saveCache();
 
-  // Kirim pesan USDT dan USDC secara paralel bersamaan
-  await Promise.all([
-    ...Object.keys(users).map(chatId => sendOrEdit(chatId, message)),
-    ...Object.keys(users).map(chatId => sendOrEditUsdc(chatId, usdcMessage))
-  ]);
+  // Kirim pesan USDT ke semua user secara paralel
+  await Promise.all(
+    Object.keys(users).map(chatId => sendOrEdit(chatId, message))
+  );
+
+  // Kirim pesan USDC secara terpisah ke semua user
+  await Promise.all(
+    Object.keys(users).map(chatId => sendOrEditUsdc(chatId, usdcMessage))
+  );
 
   // Cek alert saldo rendah
   await checkBalanceAlert(balance);
@@ -443,7 +449,118 @@ Segera periksa transaksi ini!`;
   scannedUpTo = currentBlock;
 }
 
-// ================= TERMINAL STATUS =================
+// ================= USDC TRANSFER CHECK =================
+
+async function checkUsdcTransfers() {
+
+  const currentBlock = await provider.getBlockNumber();
+
+  if (scannedUsdcUpTo === 0) {
+    scannedUsdcUpTo = currentBlock;
+    return;
+  }
+
+  if (currentBlock <= scannedUsdcUpTo) return;
+
+  const events = await contractUsdc.queryFilter(
+    contractUsdc.filters.Transfer(),
+    scannedUsdcUpTo + 1,
+    currentBlock
+  );
+
+  const relevantEvents = events.filter(e => {
+    const from = e.args.from.toLowerCase();
+    const to   = e.args.to.toLowerCase();
+    const wallets = Object.values(USDC_WALLETS).map(w => w.toLowerCase());
+    return wallets.some(w => w === from || w === to) && !processedUsdcTx.has(e.transactionHash);
+  });
+
+  if (relevantEvents.length === 0) {
+    scannedUsdcUpTo = currentBlock;
+    return;
+  }
+
+  const e = relevantEvents[relevantEvents.length - 1];
+  processedUsdcTx.add(e.transactionHash);
+
+  const from = e.args.from.toLowerCase();
+  const to   = e.args.to.toLowerCase();
+
+  const decimals = await contractUsdc.decimals();
+  const amount   = ethers.formatUnits(e.args.value, decimals);
+
+  // Tentukan wallet mana yang terlibat
+  const euroAddr = USDC_WALLETS.EURO.toLowerCase();
+  const usAddr   = USDC_WALLETS.US.toLowerCase();
+  let walletLabel = "";
+  let walletAddr  = "";
+  if (to === euroAddr || from === euroAddr) {
+    walletLabel = "EURO";
+    walletAddr  = USDC_WALLETS.EURO;
+  } else {
+    walletLabel = "USA";
+    walletAddr  = USDC_WALLETS.US;
+  }
+
+  const isIn = to === walletAddr.toLowerCase();
+  const type = isIn ? "🟢 USDC IN" : "🔴 USDC OUT";
+  const counterparty = isIn ? from : to;
+
+  // Fetch balance terbaru kedua wallet USDC
+  const [usdcEuroRaw, usdcUsRaw] = await Promise.all([
+    contractUsdc.balanceOf(USDC_WALLETS.EURO),
+    contractUsdc.balanceOf(USDC_WALLETS.US)
+  ]);
+  const usdcEuro = parseFloat(ethers.formatUnits(usdcEuroRaw, decimals)).toFixed(2);
+  const usdcUs   = parseFloat(ethers.formatUnits(usdcUsRaw,   decimals)).toFixed(2);
+
+  const block = await provider.getBlock(e.blockNumber);
+  const d = new Date(block.timestamp * 1000);
+  const time =
+    `${String(d.getDate()).padStart(2,"0")}/` +
+    `${String(d.getMonth()+1).padStart(2,"0")}/` +
+    `${d.getFullYear()} | ` +
+    `${String(d.getHours()).padStart(2,"0")}:` +
+    `${String(d.getMinutes()).padStart(2,"0")}:` +
+    `${String(d.getSeconds()).padStart(2,"0")}`;
+
+  const usdcMessage =
+`💵 <b>USDC Balance</b>
+
+EURO
+Address : <a href="https://celoscan.io/address/${USDC_WALLETS.EURO}">${USDC_WALLETS.EURO}</a>
+Balance : ${usdcEuro} USDC
+
+USA
+Address : <a href="https://celoscan.io/address/${USDC_WALLETS.US}">${USDC_WALLETS.US}</a>
+Balance : ${usdcUs} USDC
+
+━━━━━━━━━━━━━━━━
+
+${type} (${walletLabel})
+${isIn ? "From" : "To"} : <a href="https://celoscan.io/address/${counterparty}">${counterparty}</a>
+Jumlah : ${amount} USDC
+Block  : ${e.blockNumber}
+Tx     : <a href="https://celoscan.io/tx/${e.transactionHash}">${e.transactionHash}</a>
+
+${time}
+`;
+
+  lastUsdcMessageCache = usdcMessage;
+  saveCache();
+
+  await Promise.all(
+    Object.keys(users).map(chatId => sendOrEditUsdc(chatId, usdcMessage))
+  );
+
+  if (processedUsdcTx.size > 10000) {
+    processedUsdcTx.clear();
+  }
+
+  scannedUsdcUpTo = currentBlock;
+}
+
+
 
 setInterval(() => {
   process.stdout.write("\x1Bc");
@@ -467,6 +584,7 @@ async function start() {
     try {
       await Promise.all([
         checkTransfers(),
+        checkUsdcTransfers(),
         checkTelegram()
       ]);
       CONNECTION_STATUS = "🟢 Connected";
