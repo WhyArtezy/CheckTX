@@ -288,7 +288,8 @@ Jumlah: ${amount} USDC
 Block : ${e.blockNumber}
 Tx : <a href="https://celoscan.io/tx/${e.transactionHash}">${e.transactionHash}</a>
 
-Segera periksa transaksi ini!`;
+${time}
+`;
 
     // Kirim alert besar ke semua user secara paralel
     await Promise.all(
@@ -303,10 +304,11 @@ Segera periksa transaksi ini!`;
     const lowBalanceText =
 `⚠️ <b> AMERIKA |  SALDO RENDAH</b>
 
-Saldo wallet saat ini hanya <b>${balance} USDC</b>
 Address : <a href="https://celoscan.io/address/${WALLET_ADDRESS}">${WALLET_ADDRESS}</a>
+Saldo saat ini <b>${balance} USDC</b>
 
-Segera top up saldo!`;
+${time}
+`;
 
     await Promise.all(
       Object.keys(users).map(chatId => sendBigAlert(chatId, lowBalanceText))
