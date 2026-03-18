@@ -14,7 +14,7 @@ const RPC_LIST = [
   process.env.RPC_3
 ].filter(Boolean);
 
-const USDT_CONTRACT = "0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e";
+const USDT_CONTRACT = "0xcebA9300f2b948710d2653dD7B07f33A8B32118C";
 
 const ABI = [
   "function balanceOf(address) view returns (uint256)",
@@ -265,13 +265,13 @@ async function checkTransfers() {
 
   const message =
 `Address : <a href="https://celoscan.io/address/${WALLET_ADDRESS}">${WALLET_ADDRESS}</a>
-Balance : ${balance} USDT
+Balance : ${balance} USDC
 
 ━━━━━━━━━━━━━━━━
 
 ${type}
 ${isIn ? "From" : "To"} : <a href="https://celoscan.io/address/${counterparty}">${counterparty}</a>
-Jumlah : ${amount} USDT
+Jumlah : ${amount} USDC
 Block : ${e.blockNumber}
 Tx : <a href="https://celoscan.io/tx/${e.transactionHash}">${e.transactionHash}</a>
 
@@ -289,7 +289,7 @@ ${time}
     const alertText =
 `🚨 <b>ALERT TRANSAKSI BESAR</b>
 
-Jumlah : ${amount} USDT
+Jumlah : ${amount} USDC
 Block  : ${e.blockNumber}
 Tx     : <a href="https://celoscan.io/tx/${e.transactionHash}">${e.transactionHash}</a>
 
@@ -308,7 +308,7 @@ Segera periksa transaksi ini!`;
     const lowBalanceText =
 `⚠️ <b>ALERT SALDO RENDAH</b>
 
-Saldo wallet saat ini hanya <b>${balance} USDT</b>, di bawah batas minimum 500 USDT.
+Saldo wallet saat ini hanya <b>${balance} USDC</b>, di bawah batas minimum 500 USDT.
 
 Address : <a href="https://celoscan.io/address/${WALLET_ADDRESS}">${WALLET_ADDRESS}</a>
 
